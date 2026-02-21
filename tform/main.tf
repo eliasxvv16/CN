@@ -8,6 +8,7 @@ terraform {
 }
 
 provider "aws" {
+  # Región donde se desplegarán todos los recursos de AWS
   region = "us-east-1"
 }
 
@@ -15,31 +16,41 @@ provider "aws" {
 # VARIABLES
 # ------------------------------------------------------------------
 
+# Nombre del proyecto
 variable "project_name" {
   type    = string
   default = "PixelHardware"
 }
 
+# Rango CIDR de la VPC
 variable "vpc_cidr" {
   type    = string
   default = "10.0.0.0/16"
 }
 
+# IP permitida para SSH administrador
 variable "admin_ssh_cidr" {
   type    = string
   default = "86.127.226.14/32"
 }
 
+# Nombre de la key pair para acceso SSH
 variable "key_name" {
   type    = string
   default = "vockey"
 }
 
+# AMI que se usará para las instancias EC2
 variable "ami_id" {
   type    = string
   default = "ami-0b6c6ebed2801a5cb"
 }
 
+# ------------------------------------------------------------------
+# LOCALES
+# ------------------------------------------------------------------
+
+# Variable local con el nombre del proyecto en minúsculas
 locals {
   project = lower(var.project_name)
 }
@@ -48,6 +59,7 @@ locals {
 # VPC
 # ------------------------------------------------------------------
 
+# VPC principal
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
@@ -58,6 +70,7 @@ resource "aws_vpc" "main" {
   }
 }
 
+# Internet Gateway para la VPC
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
 }
@@ -66,6 +79,7 @@ resource "aws_internet_gateway" "igw" {
 # SUBNETS
 # ------------------------------------------------------------------
 
+# Subnet pública (para instancias accesibles desde Internet)
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.0.0/24"
@@ -73,12 +87,14 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = true
 }
 
+# Subnet privada para servidores web internos
 resource "aws_subnet" "private_web" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.1.0/24"
   availability_zone = "us-east-1a"
 }
 
+# Subnet privada para base de datos
 resource "aws_subnet" "private_db" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.2.0/24"
@@ -89,25 +105,30 @@ resource "aws_subnet" "private_db" {
 # ROUTE TABLES
 # ------------------------------------------------------------------
 
+# Tabla de rutas pública
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 }
 
+# Ruta hacia Internet para subnets públicas
 resource "aws_route" "public_internet" {
   route_table_id         = aws_route_table.public.id
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = aws_internet_gateway.igw.id
 }
 
+# Asociación de tabla de rutas con subnet pública
 resource "aws_route_table_association" "public_assoc" {
   subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id
 }
 
+# Tabla de rutas privadas
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 }
 
+# Asociaciones de tabla de rutas privadas con subnets internas
 resource "aws_route_table_association" "private_web_assoc" {
   subnet_id      = aws_subnet.private_web.id
   route_table_id = aws_route_table.private.id
@@ -122,16 +143,19 @@ resource "aws_route_table_association" "private_db_assoc" {
 # NAT GATEWAY
 # ------------------------------------------------------------------
 
+# Elastic IP para el NAT Gateway
 resource "aws_eip" "nat_eip" {
   domain = "vpc"
 }
 
+# NAT Gateway en subnet pública para que subnets privadas accedan a Internet
 resource "aws_nat_gateway" "nat" {
   allocation_id = aws_eip.nat_eip.id
   subnet_id     = aws_subnet.public.id
   depends_on    = [aws_internet_gateway.igw]
 }
 
+# Ruta por defecto de subnets privadas hacia NAT
 resource "aws_route" "private_nat_route" {
   route_table_id         = aws_route_table.private.id
   destination_cidr_block = "0.0.0.0/0"
@@ -142,6 +166,7 @@ resource "aws_route" "private_nat_route" {
 # SECURITY GROUPS
 # ------------------------------------------------------------------
 
+# Security Group del proxy público
 resource "aws_security_group" "sg_proxy" {
   name   = "${local.project}-sg-proxy"
   vpc_id = aws_vpc.main.id
@@ -175,6 +200,7 @@ resource "aws_security_group" "sg_proxy" {
   }
 }
 
+# Security Group para servidores web privados
 resource "aws_security_group" "sg_web" {
   name   = "${local.project}-sg-web"
   vpc_id = aws_vpc.main.id
@@ -201,6 +227,7 @@ resource "aws_security_group" "sg_web" {
   }
 }
 
+# Security Group para la base de datos
 resource "aws_security_group" "sg_db" {
   name   = "${local.project}-sg-db"
   vpc_id = aws_vpc.main.id
@@ -224,6 +251,7 @@ resource "aws_security_group" "sg_db" {
 # EC2 INSTANCES
 # ------------------------------------------------------------------
 
+# Instancia proxy pública
 resource "aws_instance" "proxy" {
   ami                    = var.ami_id
   instance_type          = "t3.small"
@@ -236,11 +264,13 @@ resource "aws_instance" "proxy" {
   }
 }
 
+# Elastic IP para la instancia proxy
 resource "aws_eip" "proxy_eip" {
   instance = aws_instance.proxy.id
   domain   = "vpc"
 }
 
+# Instancias web privadas (2 instancias)
 resource "aws_instance" "web" {
   count                  = 2
   ami                    = var.ami_id
@@ -258,14 +288,16 @@ resource "aws_instance" "web" {
 # RDS
 # ------------------------------------------------------------------
 
+# Grupo de subnets para RDS
 resource "aws_db_subnet_group" "rds_subnet_group" {
-  name = "${local.project}-db-subnet-group"
+  name       = "${local.project}-db-subnet-group"
   subnet_ids = [
     aws_subnet.private_web.id,
     aws_subnet.private_db.id
   ]
 }
 
+# Instancia RDS MariaDB
 resource "aws_db_instance" "rds_mysql" {
   identifier              = "wordpress-db"
   engine                  = "mariadb"
@@ -285,14 +317,17 @@ resource "aws_db_instance" "rds_mysql" {
 # OUTPUTS
 # ------------------------------------------------------------------
 
+# IP pública del proxy
 output "proxy_public_ip" {
   value = aws_eip.proxy_eip.public_ip
 }
 
+# IP privadas de las instancias web
 output "web_private_ips" {
   value = aws_instance.web[*].private_ip
 }
 
+# Endpoint de la base de datos
 output "rds_endpoint" {
   value = aws_db_instance.rds_mysql.endpoint
 }
