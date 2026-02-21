@@ -50,19 +50,10 @@ locals {
 # ------------------------------------------------------------------
 # DATA SOURCES (AMI UBUNTU)
 # ------------------------------------------------------------------
-data "aws_ami" "ubuntu" {
-  most_recent = true
-  owners      = ["099720109477"] # Canonical
-
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
+variable "ami_id" {
+  description = "AMI id to use for EC2 instances. Provide a valid Ubuntu Jammy AMI for your region"
+  type        = string
+  default     = "ami-0b6c6ebed2801a5cb" # REPLACE with a real AMI id for us-east-1
 }
 
 # ------------------------------------------------------------------
@@ -102,7 +93,7 @@ resource "aws_subnet" "public" {
 resource "aws_subnet" "private_web" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.1.0/24"
-  availability_zone = "us-east-1a"
+  availability_zone = "us-east-1b"
 
   tags = {
     Name = "${local.project}-subnet-private-web-a"
@@ -110,15 +101,7 @@ resource "aws_subnet" "private_web" {
 }
 
 # Subred Privada 1b (Web Servers segunda AZ)
-resource "aws_subnet" "private_web_b" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = "us-east-1b"
-
-  tags = {
-    Name = "${local.project}-subnet-private-web-b"
-  }
-}
+/* removed: private_web_b - simplified to single private web subnet */
 
 # Subred Privada 2 (Database)
 resource "aws_subnet" "private_db" {
@@ -132,15 +115,7 @@ resource "aws_subnet" "private_db" {
 }
 
 # Subred Privada 2b (Database segunda AZ)
-resource "aws_subnet" "private_db_b" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.4.0/24"
-  availability_zone = "us-east-1b"
-
-  tags = {
-    Name = "${local.project}-subnet-private-db-b"
-  }
-}
+/* removed: private_db_b - simplified to single DB subnet */
 
 # Tabla de Rutas Pública
 resource "aws_route_table" "public" {
@@ -175,20 +150,11 @@ resource "aws_route_table_association" "private_web_assoc" {
   route_table_id = aws_route_table.private.id
 }
 
-resource "aws_route_table_association" "private_web_b_assoc" {
-  subnet_id      = aws_subnet.private_web_b.id
-  route_table_id = aws_route_table.private.id
-}
-
 resource "aws_route_table_association" "private_db_assoc" {
   subnet_id      = aws_subnet.private_db.id
   route_table_id = aws_route_table.private.id
 }
-
-resource "aws_route_table_association" "private_db_b_assoc" {
-  subnet_id      = aws_subnet.private_db_b.id
-  route_table_id = aws_route_table.private.id
-}
+/* removed route table associations for deleted subnets */
 
 # ------------------------------------------------------------------
 # SEGURIDAD (SECURITY GROUPS)
@@ -256,9 +222,7 @@ resource "aws_network_acl" "private_nacl" {
   vpc_id     = aws_vpc.main.id
   subnet_ids = [
     aws_subnet.private_web.id,
-    aws_subnet.private_web_b.id,
     aws_subnet.private_db.id,
-    aws_subnet.private_db_b.id,
   ]
 
   # Inbound: permite tráfico desde el proxy (y entre privadas)
@@ -285,25 +249,7 @@ resource "aws_network_acl" "private_nacl" {
     protocol   = "tcp"
     rule_no    = 120
     action     = "allow"
-    cidr_block = "10.0.2.0/24"
-    from_port  = 0
-    to_port    = 65535
-  }
-
-  ingress {
-    protocol   = "tcp"
-    rule_no    = 130
-    action     = "allow"
     cidr_block = "10.0.3.0/24"
-    from_port  = 0
-    to_port    = 65535
-  }
-
-  ingress {
-    protocol   = "tcp"
-    rule_no    = 140
-    action     = "allow"
-    cidr_block = "10.0.4.0/24"
     from_port  = 0
     to_port    = 65535
   }
@@ -457,16 +403,11 @@ resource "aws_security_group" "sg_db" {
 # INSTANCIAS EC2 (UBUNTU + APT)
 # ------------------------------------------------------------------
 
-locals {
-  web_subnets = [
-    aws_subnet.private_web.id,
-    aws_subnet.private_web_b.id,
-  ]
-}
+
 
 # Instancia Proxy (NAT + Balanceador)
 resource "aws_instance" "proxy" {
-  ami                    = data.aws_ami.ubuntu.id
+  ami                    = var.ami_id
   instance_type          = "t3.small"
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.sg_proxy.id]
@@ -544,10 +485,10 @@ resource "aws_route" "private_nat_route" {
 # Instancias Web (www1, www2)
 resource "aws_instance" "web" {
   count                  = 2
-  ami                    = data.aws_ami.ubuntu.id
+  ami                    = var.ami_id
   instance_type          = "t3.small"
-  # each index picks a different subnet so hosts spread across AZs
-  subnet_id              = local.web_subnets[count.index]
+  # both web instances placed in the single private web subnet
+  subnet_id              = aws_subnet.private_web.id
   vpc_security_group_ids = [aws_security_group.sg_web.id]
   key_name               = var.key_name
 
@@ -561,14 +502,11 @@ resource "aws_instance" "web" {
 # BASE DE DATOS (AURORA)
 # ------------------------------------------------------------------
 # Grupo de Subnetes para RDS
-resource "aws_db_subnet_group" "aurora_subnet_group" {
+resource "aws_db_subnet_group" "rds_subnet_group" {
   name       = "${local.project}-db-subnet-group"
-  # Must cover at least two AZs; include both pairs of private subnets
   subnet_ids = [
-    aws_subnet.private_web.id,
-    aws_subnet.private_web_b.id,
     aws_subnet.private_db.id,
-    aws_subnet.private_db_b.id,
+    aws_subnet.private_web.id,
   ]
 
   tags = {
@@ -576,37 +514,30 @@ resource "aws_db_subnet_group" "aurora_subnet_group" {
   }
 }
 
-# Cluster Aurora
-resource "aws_rds_cluster" "aurora" {
-  cluster_identifier      = "${local.project}-aurora-cluster"
-  engine = "aurora-mysql"
-  # engine_version omitted to allow AWS to select a supported default
-  database_name           = "wordpress_db"
-  master_username         = "adminwp"
-  master_password         = "PasswordSeguro123!" # CAMBIAR EN PRODUCCIÓN
-  db_subnet_group_name    = aws_db_subnet_group.aurora_subnet_group.name
-  vpc_security_group_ids  = [aws_security_group.sg_db.id]
-  skip_final_snapshot     = true
-  storage_encrypted       = true
-  backup_retention_period = 7
-  
-  tags = {
-    Name = "${local.project}-aurora-cluster"
-  }
-}
+# Single MySQL RDS Instance (single AZ)
+resource "aws_db_instance" "rds_mysql" {
+  identifier           = "wordpress-db"
+  engine               = "mariadb"
+  engine_version       = "10.6"
+  instance_class       = "db.t3.small"
+  allocated_storage    = 20
+  storage_type         = "gp2"
+  storage_encrypted    = true
 
-# Instancia del Cluster
-resource "aws_rds_cluster_instance" "aurora_instance" {
-  identifier           = "${local.project}-aurora-instance"
-  cluster_identifier   = aws_rds_cluster.aurora.id
-  instance_class       = "db.t4g.medium"
-  engine = aws_rds_cluster.aurora.engine
-  # engine_version inherits from cluster
+  db_name              = "wordpress_db"
+  username             = "adminwp"
+  password             = "PasswordSeguro123!" # CAMBIAR EN PRODUCCIÓN
+
+  db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name
+  vpc_security_group_ids = [aws_security_group.sg_db.id]
+
   publicly_accessible  = false
-  db_subnet_group_name = aws_db_subnet_group.aurora_subnet_group.name
+  skip_final_snapshot  = true
+  backup_retention_period = 7
+  multi_az             = false
 
   tags = {
-    Name = "${local.project}-aurora-instance"
+    Name = "${local.project}-mysql-instance"
   }
 }
 
@@ -626,7 +557,7 @@ output "web_instances_private_ips" {
 }
 
 output "rds_endpoint" {
-  value = aws_rds_cluster.aurora.endpoint
+  value = aws_db_instance.rds_mysql.endpoint
 }
 
 output "ssh_command_proxy" {
