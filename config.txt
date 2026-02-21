@@ -1,0 +1,16 @@
+Host proxy_host
+  HostName 54.84.127.43
+  IdentityFile ~/lab93.pem
+  User ubuntu
+
+Host web1
+  HostName 10.0.1.69
+  IdentityFile ~/lab93.pem
+  User ubuntu
+  ProxyJump proxy_host
+
+Host web2
+  HostName 10.0.1.135
+  IdentityFile ~/lab93.pem
+  User ubuntu
+  ProxyJump proxy_host
