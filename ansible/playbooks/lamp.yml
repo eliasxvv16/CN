@@ -29,7 +29,7 @@
           - php-soap
         state: present
 
-    - name: Install MySQL client
+    - name: Install MariaDB client
       apt:
         name:
           - mariadb-client
