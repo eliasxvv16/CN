@@ -1,0 +1,57 @@
+---
+- name: Install LAMP Stack
+  hosts: webservers
+  become: yes
+
+  tasks:
+    - name: Update packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Install Apache
+      apt:
+        name: apache2
+        state: present
+
+    - name: Install PHP and extensions
+      apt:
+        name:
+          - php
+          - libapache2-mod-php
+          - php-mysql
+          - php-gd
+          - php-xml
+          - php-mbstring
+          - php-json
+          - php-curl
+          - php-zip
+          - php-soap
+        state: present
+
+    - name: Install MySQL client
+      apt:
+        name:
+          - mariadb-client
+        state: present
+
+    - name: Start Apache
+      systemd:
+        name: apache2
+        enabled: yes
+        state: started
+
+    - name: Create test file
+      copy:
+        content: |
+          <?php
+          phpinfo();
+          ?>
+        dest: /var/www/html/info.php
+        owner: www-data
+        group: www-data
+
+    - name: Done
+      debug:
+        msg: "✓ LAMP instalado en {{ inventory_hostname }}"
+

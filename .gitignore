@@ -1,0 +1,43 @@
+# Archivos del Sistema Operativo
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+
+# Logs
+*.log
+logs/
+
+# SSH Keys y credenciales (NUNCA incluir)
+*.pem
+*.key
+*.pub
+vockey.pem
+.ssh/
+
+# Archivo sensibles
+secrets/
+credentials/
+
+# Directorio de build/dist
+build/
+dist/
+*.egg-info/
