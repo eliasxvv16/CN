@@ -258,6 +258,14 @@ resource "aws_instance" "proxy" {
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.sg_proxy.id]
   key_name               = var.key_name
+  source_dest_check           = false
+
+  user_data = <<-EOF
+  #!/bin/bash
+  echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+  sysctl -p
+  iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+  EOF
 
   tags = {
     Name = "${local.project}-proxy"
