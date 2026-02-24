@@ -4,13 +4,13 @@
   become: yes
 
   tasks:
-    - name: Update packages
+    - name: Actrualizar repositorios e instalar actualizaciones
       apt:
         update_cache: yes
         upgrade: dist
 
-    - name: Install Apache
-      apt:
+    - name: Instalar Apache
+      apt:c
         name: apache2
         state: present
 
@@ -29,7 +29,7 @@
           - php-soap
         state: present
 
-    - name: Install MariaDB client
+    - name: Instalar MariaDB client
       apt:
         name:
           - mariadb-client
@@ -41,7 +41,7 @@
         enabled: yes
         state: started
 
-    - name: Create test file
+    - name: Crear archivo de prueba
       copy:
         content: |
           <?php
@@ -51,7 +51,7 @@
         owner: www-data
         group: www-data
 
-    - name: Done
+    - name: Hecho
       debug:
         msg: "✓ LAMP instalado en {{ inventory_hostname }}"
 
