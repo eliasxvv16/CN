@@ -10,7 +10,7 @@
         upgrade: dist
 
     - name: Instalar Apache
-      apt:c
+      apt:
         name: apache2
         state: present
 
